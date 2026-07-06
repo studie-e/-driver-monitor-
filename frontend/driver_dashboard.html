@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard tài xế - Hệ thống an toàn xe đưa đón học sinh</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background:#f1f5f9; color:#0f172a; padding:24px; }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+
+  /* Navigation */
+  .nav { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .nav a { text-decoration:none; font-size:13px; font-weight:600; padding:7px 14px; border-radius:8px; transition:all .15s; white-space:nowrap; }
+  .nav-checkin { background:#eff6ff; color:#1d4ed8; border:1.5px solid #bfdbfe; }
+  .nav-checkin:hover { background:#dbeafe; }
+  .nav-register { background:#f0fdf4; color:#15803d; border:1.5px solid #bbf7d0; }
+  .nav-register:hover { background:#dcfce7; }
+
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 0; }
+  .controls label { font-size: 14px; font-weight: 500; color: #475569; }
+  input { padding:8px 12px; border-radius:6px; border:1.5px solid #cbd5e1; background:#ffffff; color:#0f172a; font-size: 14px; transition: border-color 0.15s; }
+  input:focus { outline: none; border-color: #3b82f6; }
+
+  /* Grid cards */
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:16px; }
+  .card { background:#ffffff; border-radius:12px; padding:16px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08); }
+  .card h2 { margin-top:0; font-size:15px; font-weight: 600; color:#1e40af; margin-bottom: 12px; }
+  .metric { font-size:28px; font-weight:bold; }
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; margin-top:6px; color:white; font-weight: 600; }
+  .badge.ok { background:#16a34a; }
+  .badge.warn { background:#d97706; }
+  .badge.critical { background:#dc2626; }
+
+  /* Thông tin vị trí */
+  .location-row { font-size: 14px; margin-bottom: 6px; color: #475569; }
+  .location-row b { color: #0f172a; }
+
+  /* Nút khẩn cấp */
+  .emergency-card { margin-top:16px; }
+  .emergency-card > p { font-size: 13px; color: #64748b; margin-bottom: 12px; line-height: 1.5; }
+  .emergency-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:10px; }
+  button.emergency { padding:16px; border:none; border-radius:10px; color:white; font-weight:bold; cursor:pointer; font-size:14px; transition: opacity 0.15s; }
+  button.emergency:hover { opacity: 0.9; }
+  .btn-accident { background:#dc2626; }
+  .btn-intruder { background:#7c3aed; }
+  .btn-fire { background:#ea580c; }
+
+  /* Nhật ký */
+  .log-card { margin-top:16px; }
+  #log { background:#f8fafc; border: 1px solid #e2e8f0; border-radius:8px; padding:12px; height:220px; overflow-y:auto; font-family: monospace; font-size:12px; }
+  .log-critical { color:#dc2626; font-weight:bold; }
+  .log-warning { color:#d97706; }
+  .log-info { color:#475569; }
+
+  /* Trạng thái điểm danh */
+  #rosterSummary { font-size: 13px; color: #475569; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dashboard tài xế</h1>
+  <div class="nav">
+    <a href="face_checkin.html" class="nav-checkin">Kiosk điểm danh</a>
+    <a href="register.html" class="nav-register">Đăng ký học sinh</a>
+  </div>
+  <div class="controls">
+    <label>Mã xe:</label>
+    <input id="busId" value="BUS-01" style="width: 100px;" />
+    <label>Mã tài xế:</label>
+    <input id="driverId" value="driver_01" style="width: 110px;" />
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Trạng thái tài xế (buồn ngủ)</h2>
+      <div class="metric" id="driverRisk">--</div>
+      <span class="badge ok" id="driverBadge">Chưa có dữ liệu</span>
+    </div>
+
+    <div class="card">
+      <h2>Nhịp tim tài xế (BPM)</h2>
+      <div class="metric" id="pulseBpm">--</div>
+      <span class="badge ok" id="pulseBadge">Chưa có dữ liệu</span>
+    </div>
+
+    <div class="card">
+      <h2>Vị trí / ETA / Lệch hướng</h2>
+      <div class="location-row">Trạm kế tiếp: <b id="nextStop">--</b></div>
+      <div class="location-row">ETA: <b id="eta">--</b> phút</div>
+      <div class="location-row">Tốc độ: <b id="speed">--</b> km/h</div>
+      <span class="badge ok" id="deviationBadge">Đang đi đúng tuyến</span>
+    </div>
+
+    <div class="card">
+      <h2>Điểm danh chuyến hiện tại</h2>
+      <div id="rosterSummary">Chưa có dữ liệu điểm danh.</div>
+    </div>
+  </div>
+
+  <div class="card emergency-card">
+    <h2>Nút bấm khẩn cấp</h2>
+    <p>Chọn đúng loại tình huống — hệ thống sẽ tự động gửi cảnh báo tới đúng đối tượng (cảnh sát / cứu hỏa / phụ huynh / nhà trường).</p>
+    <div class="emergency-grid">
+      <button class="emergency btn-accident" onclick="triggerEmergency('traffic_accident')">Tai nạn giao thông</button>
+      <button class="emergency btn-intruder" onclick="triggerEmergency('intruder')">Kẻ gian xâm nhập</button>
+      <button class="emergency btn-fire" onclick="triggerEmergency('fire')">Hỏa hoạn</button>
+    </div>
+  </div>
+
+  <div class="card log-card">
+    <h2>Nhật ký cảnh báo real-time (WebSocket)</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+const WS_BASE  = "ws://localhost:8000";
+
+function logLine(text, cls) {
+  const log = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = cls || 'log-info';
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  log.prepend(div);
+}
+
+async function triggerEmergency(incidentType) {
+  const busId = document.getElementById('busId').value;
+  logLine(`Đang gửi cảnh báo khẩn cấp: ${incidentType}...`, 'log-warning');
+  try {
+    const resp = await fetch(`${API_BASE}/api/emergency/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ incident_type: incidentType, bus_id: busId }),
+    }).then(r => r.json());
+    logLine(`Đã gửi tới: ${resp.channels_notified.join(', ')} — "${resp.message}"`, 'log-critical');
+  } catch(e) {
+    logLine('Lỗi kết nối backend khi gửi khẩn cấp.', 'log-critical');
+  }
+}
+
+function connectRoom(room, onMessage) {
+  const ws = new WebSocket(`${WS_BASE}/ws/${room}`);
+  ws.onmessage = (evt) => onMessage(JSON.parse(evt.data));
+  ws.onclose = () => setTimeout(() => connectRoom(room, onMessage), 2000);
+  return ws;
+}
+
+function setBadge(elId, text, level) {
+  const el = document.getElementById(elId);
+  el.textContent = text;
+  el.className = 'badge ' + (level === 'critical' ? 'critical' : level === 'warning' ? 'warn' : 'ok');
+}
+
+window.addEventListener('load', () => {
+  const busId = document.getElementById('busId').value;
+  const driverId = document.getElementById('driverId').value;
+
+  // Phòng bus_id: nhận face_scan_result, cabin_sweep_result, bus_location_update, emergency_dispatch
+  connectRoom(busId, (msg) => {
+    if (msg.type === 'bus_location_update') {
+      document.getElementById('nextStop').textContent = msg.next_stop || '--';
+      document.getElementById('eta').textContent = msg.eta_minutes ?? '--';
+      document.getElementById('speed').textContent = msg.speed_kmh ?? '--';
+      const dev = msg.route_deviation;
+      if (dev && dev.deviated) {
+        setBadge('deviationBadge', dev.message, 'critical');
+        logLine(dev.message, 'log-critical');
+      } else {
+        setBadge('deviationBadge', 'Đang đi đúng tuyến', 'ok');
+      }
+    } else if (msg.type === 'face_scan_result' || msg.type === 'face_scan_alert') {
+      if (msg.roster_summary) {
+        document.getElementById('rosterSummary').innerHTML =
+          `Trên xe: <b>${msg.roster_summary.counts.on_bus}</b> &nbsp;|&nbsp; Đã xuống: <b>${msg.roster_summary.counts.alighted}</b> &nbsp;|&nbsp; Chưa lên: <b>${msg.roster_summary.counts.not_boarded}</b>`;
+      }
+      (msg.alerts || []).forEach(a => logLine(a.message, a.severity === 'critical' ? 'log-critical' : 'log-warning'));
+    } else if (msg.type === 'cabin_sweep_result') {
+      (msg.alerts || []).forEach(a => logLine(a.message, 'log-critical'));
+    } else if (msg.type === 'emergency_dispatch') {
+      logLine(`[KHẨN CẤP] ${msg.message} → ${msg.channels_notified.join(', ')}`, 'log-critical');
+    }
+  });
+
+  // Phòng driver_<id>: nhận trạng thái buồn ngủ
+  connectRoom(`driver_${driverId}`, (msg) => {
+    if (msg.type === 'driver_status') {
+      document.getElementById('driverRisk').textContent = msg.risk_score.toFixed(2);
+      const level = msg.risk_score >= 0.55 ? 'critical' : msg.risk_score >= 0.3 ? 'warning' : 'ok';
+      setBadge('driverBadge', msg.state, level);
+      (msg.alerts || []).forEach(a => logLine(`[TÀI XẾ] ${a.message}`, a.severity === 'critical' ? 'log-critical' : 'log-warning'));
+    }
+  });
+
+  // Phòng pulse_<id>: nhận nhịp tim
+  connectRoom(`pulse_${driverId}`, (msg) => {
+    if (msg.type === 'pulse_status') {
+      document.getElementById('pulseBpm').textContent = msg.bpm ?? '--';
+      setBadge('pulseBadge', msg.status || 'unknown', msg.alert ? 'critical' : 'ok');
+      if (msg.alert) logLine(`[NHỊP TIM] ${msg.message}`, 'log-critical');
+    }
+  });
+
+  logLine('Đã kết nối WebSocket tới backend. Đang chờ dữ liệu real-time...', 'log-info');
+});
+</script>
+</body>
+</html>

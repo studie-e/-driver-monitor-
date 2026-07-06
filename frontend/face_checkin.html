@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Điểm danh khuôn mặt - Xe đưa đón học sinh</title>
+<script src="./face-api.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; flex: 1; }
+  .header-links { display: flex; gap: 8px; }
+  .header-links a {
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 8px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .link-register { background: #eff6ff; color: #1d4ed8; border: 1.5px solid #bfdbfe; }
+  .link-register:hover { background: #dbeafe; }
+  .link-dashboard { background: #f0fdf4; color: #15803d; border: 1.5px solid #bbf7d0; }
+  .link-dashboard:hover { background: #dcfce7; }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08);
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e40af;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .camera-wrap {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .stage {
+    position: relative;
+    width: 400px;
+    height: 300px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #1e293b;
+  }
+  video, canvas.overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 400px; height: 300px;
+  }
+
+  .bus-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .bus-row label { font-size: 14px; font-weight: 600; color: #475569; white-space: nowrap; }
+  input {
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1.5px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    font-size: 14px;
+    transition: border-color 0.15s;
+  }
+  input:focus { outline: none; border-color: #3b82f6; }
+
+  .trip-panel { flex: 1; }
+  .trip-panel h3 { font-size: 13px; font-weight: 600; color: #64748b; margin-bottom: 10px; }
+
+  .roster-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat-box {
+    text-align: center;
+    padding: 12px 8px;
+    border-radius: 10px;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .stat-box .num { font-size: 26px; font-weight: 700; }
+  .stat-box .lbl { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .stat-box.on-bus .num { color: #2563eb; }
+  .stat-box.alighted .num { color: #16a34a; }
+  .stat-box.not-boarded .num { color: #d97706; }
+
+  button {
+    padding: 10px 16px;
+    border: none;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.15s;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-board { background: #2563eb; color: white; }
+  .btn-board:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-alight { background: #64748b; color: white; }
+  .btn-alight:hover:not(:disabled) { background: #475569; }
+  .btn-end { background: #dc2626; color: white; }
+  .btn-end:hover:not(:disabled) { background: #b91c1c; }
+  .btn-start { background: #16a34a; color: white; }
+  .btn-start:hover:not(:disabled) { background: #15803d; }
+
+  #status {
+    margin-top: 16px;
+    padding: 13px 16px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    font-size: 14px;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    transition: all 0.25s;
+    line-height: 1.5;
+  }
+  #status.loading { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+  #status.success { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+  #status.warning { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+  #status.error { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+
+  #modelBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #fff;
+    white-space: nowrap;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #f59e0b;
+    animation: pulse-dot 1.5s infinite;
+    flex-shrink: 0;
+  }
+  .dot.ready { background: #22c55e; animation: none; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  #log {
+    height: 180px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .log-critical { color: #dc2626; font-weight: 600; }
+  .log-warning { color: #d97706; }
+  .log-info { color: #475569; }
+  .log-success { color: #16a34a; font-weight: 500; }
+
+  @media (max-width: 620px) {
+    .camera-wrap { flex-direction: column; }
+    .stage { width: 100%; height: 240px; }
+    video, canvas.overlay { width: 100%; height: 240px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>Kiosk điểm danh khuôn mặt</h1>
+    <div class="header-links">
+      <a href="register.html" class="link-register">Đăng ký học sinh</a>
+      <a href="driver_dashboard.html" class="link-dashboard">Dashboard tài xế</a>
+    </div>
+  </div>
+
+  <!-- Thông tin chuyến -->
+  <div class="card">
+    <h2>Thông tin chuyến xe</h2>
+    <div class="bus-row">
+      <label>Mã xe:</label>
+      <input id="busId" value="BUS-01" style="width: 120px;" />
+      <button class="btn-start" id="btnStartTrip" style="width:auto; margin:0; padding: 9px 16px;">
+        Bắt đầu chuyến
+      </button>
+      <span id="tripStatus" style="font-size:13px; color:#16a34a; font-weight:600; margin-left:4px;"></span>
+      <span id="modelBadge" style="margin-left:auto;">
+        <span class="dot" id="modelDot"></span>
+        <span id="modelText">Đang tải model...</span>
+      </span>
+    </div>
+
+    <div class="roster-stats">
+      <div class="stat-box on-bus">
+        <div class="num" id="statOnBus">-</div>
+        <div class="lbl">Trên xe</div>
+      </div>
+      <div class="stat-box alighted">
+        <div class="num" id="statAlighted">-</div>
+        <div class="lbl">Đã xuống</div>
+      </div>
+      <div class="stat-box not-boarded">
+        <div class="num" id="statNotBoarded">-</div>
+        <div class="lbl">Chưa lên</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera + điều khiển -->
+  <div class="card">
+    <h2>Quét khuôn mặt</h2>
+    <div class="camera-wrap">
+      <div class="stage">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="overlay" class="overlay"></canvas>
+      </div>
+
+      <div class="trip-panel">
+        <h3>Chọn hành động:</h3>
+        <button class="btn-board" id="btnBoard" onclick="handleScan('boarded')" disabled>
+          Lên xe
+        </button>
+        <button class="btn-alight" id="btnAlight" onclick="handleScan('alighted')" disabled>
+          Xuống xe
+        </button>
+        <button class="btn-end" id="btnEndTrip" onclick="endTrip()" disabled>
+          Kết thúc chuyến (quét khoang xe)
+        </button>
+      </div>
+    </div>
+
+    <div id="status">Đang tải model nhận diện khuôn mặt...</div>
+  </div>
+
+  <!-- Nhật ký -->
+  <div class="card">
+    <h2>Nhật ký hành động</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const statusEl = document.getElementById('status');
+let modelReady = false;
+let tripStarted = false;
+let isScanning = false;
+
+function setStatus(text, cls = '') {
+  statusEl.textContent = text;
+  statusEl.className = cls;
+}
+
+function logLine(text, cls = 'log-info') {
+  const log = document.getElementById('log');
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  log.prepend(div);
+}
+
+function updateRoster(summary) {
+  if (!summary || !summary.counts) return;
+  document.getElementById('statOnBus').textContent = summary.counts.on_bus ?? '-';
+  document.getElementById('statAlighted').textContent = summary.counts.alighted ?? '-';
+  document.getElementById('statNotBoarded').textContent = summary.counts.not_boarded ?? '-';
+}
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360, facingMode: 'user' } });
+    video.srcObject = stream;
+    await new Promise(resolve => (video.onloadedmetadata = resolve));
+  } catch(e) {
+    setStatus('Lỗi: Không thể truy cập camera. Kiểm tra quyền camera.', 'error');
+  }
+}
+
+async function loadModels() {
+  // Model weights đã được tải về thư mục frontend/models/ — không cần mạng ngoài
+  const MODEL_URL = "./models";
+  try {
+    setStatus('Đang tải model nhận diện khuôn mặt (lần đầu có thể mất vài giây)...', 'loading');
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelReady = true;
+    document.getElementById('modelDot').classList.add('ready');
+    document.getElementById('modelText').textContent = 'Model sẵn sàng';
+    setStatus('Model sẵn sàng. Bấm "Bắt đầu chuyến" để bắt đầu quét điểm danh.', 'success');
+  } catch(e) {
+    document.getElementById('modelText').textContent = 'Tải model thất bại';
+    setStatus('Lỗi tải model face-api.js: ' + e.message + '. Kiểm tra kết nối mạng và thử tải lại trang.', 'error');
+  }
+}
+
+async function drawLoop() {
+  if (modelReady && video.readyState >= 2) {
+    const result = await faceapi
+      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
+      .withFaceLandmarks();
+    const ctx = overlay.getContext('2d');
+    const dims = faceapi.matchDimensions(overlay, video, true);
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    if (result) {
+      const resized = faceapi.resizeResults(result, dims);
+      faceapi.draw.drawDetections(overlay, resized);
+      faceapi.draw.drawFaceLandmarks(overlay, resized);
+    }
+  }
+  requestAnimationFrame(drawLoop);
+}
+
+async function captureDescriptor() {
+  const result = await faceapi
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+  if (!result) return null;
+  return Array.from(result.descriptor);
+}
+
+// Bắt đầu chuyến
+document.getElementById('btnStartTrip').onclick = async () => {
+  const busId = document.getElementById('busId').value.trim();
+  if (!busId) { setStatus('Nhập mã xe trước.', 'warning'); return; }
+
+  setStatus('Đang khởi tạo chuyến...', 'loading');
+  try {
+    const resp = await fetch(API_BASE + '/api/checkin/start_trip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bus_id: busId, expected_students: [] }),
+    }).then(r => r.json());
+
+    tripStarted = true;
+    document.getElementById('btnBoard').disabled = false;
+    document.getElementById('btnAlight').disabled = false;
+    document.getElementById('btnEndTrip').disabled = false;
+    document.getElementById('btnStartTrip').disabled = true;
+    document.getElementById('tripStatus').textContent = '● Đang chạy';
+    updateRoster(resp.roster);
+    setStatus(`Chuyến ${busId} đã bắt đầu. Bắt đầu quét khuôn mặt.`, 'success');
+    logLine(`Bắt đầu chuyến: ${busId}`, 'log-success');
+  } catch(e) {
+    setStatus('Lỗi kết nối backend: ' + API_BASE + '. Đảm bảo backend đang chạy.', 'error');
+  }
+};
+
+async function handleScan(eventType) {
+  if (!modelReady) { setStatus('Model chưa sẵn sàng, vui lòng chờ.', 'warning'); return; }
+  if (!tripStarted) { setStatus('Chưa bắt đầu chuyến! Bấm "Bắt đầu chuyến" trước.', 'warning'); return; }
+  if (isScanning) return;
+
+  isScanning = true;
+  const busId = document.getElementById('busId').value.trim();
+  setStatus('Đang quét khuôn mặt...', 'loading');
+
+  const descriptor = await captureDescriptor();
+  if (!descriptor) {
+    setStatus('Không phát hiện khuôn mặt. Di chuyển vào trung tâm khung hình.', 'warning');
+    isScanning = false;
+    return;
+  }
+
+  try {
+    const resp = await fetch(API_BASE + '/api/checkin/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bus_id: busId, student_descriptor: descriptor, event: eventType }),
+    }).then(r => r.json());
+
+    updateRoster(resp.roster_summary);
+
+    if (resp.alerts && resp.alerts.length > 0) {
+      const critical = resp.alerts.some(a => a.severity === 'critical');
+      const msg = resp.alerts.map(a => a.message).join(' | ');
+      setStatus(msg, critical ? 'error' : 'warning');
+      resp.alerts.forEach(a => logLine(a.message, a.severity === 'critical' ? 'log-critical' : 'log-warning'));
+    } else if (resp.full_name) {
+      const action = eventType === 'boarded' ? 'đã LÊN xe' : 'đã XUỐNG xe';
+      setStatus(`${resp.full_name} — ${action} (khoảng cách nhận diện: ${resp.distance})`, 'success');
+      logLine(`${resp.full_name} — ${action}`, 'log-success');
+    } else {
+      setStatus(resp.message || 'Không nhận diện được khuôn mặt này.', 'error');
+      logLine('Không nhận diện được khuôn mặt', 'log-critical');
+    }
+  } catch(e) {
+    setStatus('Lỗi kết nối backend.', 'error');
+  }
+  isScanning = false;
+}
+
+async function endTrip() {
+  const busId = document.getElementById('busId').value.trim();
+  setStatus('Đang quét khoang xe...', 'loading');
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/checkin/end_trip/${busId}`, { method: 'POST' }).then(r => r.json());
+    updateRoster(resp.roster_summary);
+    if (resp.alerts && resp.alerts.length > 0) {
+      const msg = resp.alerts.map(a => a.message).join(' | ');
+      setStatus('[CẢNH BÁO] ' + msg, 'error');
+      resp.alerts.forEach(a => logLine('[QUÉT KHOANG] ' + a.message, 'log-critical'));
+    } else {
+      setStatus('An toàn! Không còn học sinh trên xe. Chuyến đã kết thúc.', 'success');
+      logLine('Kết thúc chuyến — khoang xe an toàn.', 'log-success');
+    }
+    tripStarted = false;
+    document.getElementById('btnBoard').disabled = true;
+    document.getElementById('btnAlight').disabled = true;
+    document.getElementById('btnEndTrip').disabled = true;
+    document.getElementById('btnStartTrip').disabled = false;
+    document.getElementById('tripStatus').textContent = '';
+  } catch(e) {
+    setStatus('Lỗi kết nối backend.', 'error');
+  }
+}
+
+(async function init() {
+  await startCamera();
+  await loadModels();
+  drawLoop();
+})();
+</script>
+</body>
+</html>

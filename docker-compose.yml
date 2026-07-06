@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  # ─── Backend FastAPI ───────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: driver-monitor-backend
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  # ─── Frontend (nginx serve HTML tinh) ─────────────────────────────
+  frontend:
+    image: nginx:alpine
+    container_name: driver-monitor-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    depends_on:
+      - backend

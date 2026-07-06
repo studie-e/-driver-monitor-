@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Đăng ký khuôn mặt học sinh</title>
+<script src="./face-api.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f1f5f9;
+    color: #0f172a;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .header a {
+    color: #64748b;
+    text-decoration: none;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .header a:hover { background: #f8fafc; }
+  .header h1 { font-size: 22px; font-weight: 700; }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1e40af;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 13px; font-weight: 500; color: #475569; }
+  input {
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1.5px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    font-size: 14px;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  input:focus { outline: none; border-color: #3b82f6; }
+
+  .camera-area {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .stage {
+    position: relative;
+    width: 360px;
+    height: 270px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #1e293b;
+  }
+  video, canvas.overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 360px; height: 270px;
+    border-radius: 12px;
+  }
+  .capture-flash {
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    border-radius: 12px;
+    pointer-events: none;
+    transition: opacity 0.05s;
+  }
+  .capture-flash.flash { opacity: 0.7; }
+
+  .samples-panel { flex: 1; }
+  .samples-panel h3 { font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 10px; }
+  .sample-list {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .sample-slot {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    border: 2px dashed #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    background: #f8fafc;
+    transition: all 0.2s;
+    overflow: hidden;
+  }
+  .sample-slot.filled {
+    border: 2px solid #22c55e;
+    background: #f0fdf4;
+  }
+  .sample-slot img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+  .sample-slot.filled .placeholder-icon { display: none; }
+
+  .progress-bar {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-success { background: #16a34a; color: white; }
+  .btn-success:hover:not(:disabled) { background: #15803d; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn-outline { background: #fff; color: #475569; border: 1.5px solid #cbd5e1; }
+  .btn-outline:hover:not(:disabled) { background: #f8fafc; }
+
+  #status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    font-size: 14px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+  }
+  #status.loading { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+  #status.success { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+  #status.warning { background: #fffbeb; border-color: #fcd34d; color: #d97706; }
+  #status.error { background: #fef2f2; border-color: #fca5a5; color: #dc2626; }
+
+  .instructions {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #1e40af;
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+  .instructions b { display: block; margin-bottom: 4px; font-size: 14px; }
+
+  .student-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .student-table th {
+    text-align: left;
+    padding: 8px 12px;
+    background: #f8fafc;
+    color: #64748b;
+    font-weight: 600;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .student-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+  .student-table tr:last-child td { border-bottom: none; }
+  .badge-samples {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #dcfce7;
+    color: #15803d;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 24px;
+    color: #94a3b8;
+    font-size: 14px;
+  }
+
+  #modelStatus {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #f59e0b;
+    animation: pulse-dot 1.5s infinite;
+    flex-shrink: 0;
+  }
+  .dot.ready { background: #22c55e; animation: none; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  @media (max-width: 600px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .camera-area { flex-direction: column; }
+    .stage { width: 100%; height: 240px; }
+    video, canvas.overlay { width: 100%; height: 240px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <a href="face_checkin.html">&#8592; Quay lại điểm danh</a>
+    <h1>Đăng ký khuôn mặt học sinh</h1>
+    <span id="modelStatus">
+      <span class="dot" id="modelDot"></span>
+      <span id="modelText">Đang tải model...</span>
+    </span>
+  </div>
+
+  <!-- Thông tin học sinh -->
+  <div class="card">
+    <h2>Thông tin học sinh</h2>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="studentId">Mã học sinh *</label>
+        <input id="studentId" placeholder="VD: HS-001" />
+      </div>
+      <div class="form-group">
+        <label for="fullName">Họ tên đầy đủ *</label>
+        <input id="fullName" placeholder="VD: Nguyễn Văn An" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera + mẫu -->
+  <div class="card">
+    <h2>Chụp mẫu khuôn mặt (tối thiểu 3 ảnh, khuyến nghị 5 ảnh)</h2>
+
+    <div class="instructions">
+      <b>Hướng dẫn chụp mẫu:</b>
+      Chụp 5 tấm ảnh từ các góc khác nhau: <b>nhìn thẳng</b>, <b>nghiêng trái</b>, <b>nghiêng phải</b>, <b>ngồi cao</b>, <b>ngồi thấp</b>.
+      Mỗi lần bấm "Chụp mẫu" hệ thống sẽ tự động phát hiện khuôn mặt và lưu lại. Phím tắt: <b>Space</b>.
+    </div>
+
+    <div class="camera-area">
+      <div class="stage">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="overlay" class="overlay"></canvas>
+        <div class="capture-flash" id="flash"></div>
+      </div>
+
+      <div class="samples-panel">
+        <h3>Mẫu đã chụp (<span id="sampleCount">0</span>/5)</h3>
+        <div class="sample-list" id="sampleList">
+          <div class="sample-slot" id="slot0"><span class="placeholder-icon">1</span></div>
+          <div class="sample-slot" id="slot1"><span class="placeholder-icon">2</span></div>
+          <div class="sample-slot" id="slot2"><span class="placeholder-icon">3</span></div>
+          <div class="sample-slot" id="slot3"><span class="placeholder-icon">4</span></div>
+          <div class="sample-slot" id="slot4"><span class="placeholder-icon">5</span></div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" id="btnCapture" disabled>Chụp mẫu</button>
+          <button class="btn-outline" id="btnReset">Xóa hết</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status">Đang tải model nhận diện khuôn mặt...</div>
+
+    <div class="btn-row" style="margin-top: 16px;">
+      <button class="btn-success" id="btnRegister" disabled>Lưu đăng ký</button>
+      <button class="btn-outline" id="btnAddMore">Chụp thêm mẫu</button>
+    </div>
+  </div>
+
+  <!-- Danh sách học sinh -->
+  <div class="card">
+    <h2>Danh sách học sinh đã đăng ký (phiên này)</h2>
+    <div id="studentListArea">
+      <div class="empty-state">Chưa có học sinh nào được đăng ký trong phiên này.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8000";
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const statusEl = document.getElementById('status');
+const flash = document.getElementById('flash');
+
+const MAX_SAMPLES = 5;
+let capturedDescriptors = [];
+let capturedThumbs = [];
+let registeredStudents = [];
+let modelReady = false;
+let isCapturing = false;
+
+function setStatus(text, cls = '') {
+  statusEl.textContent = text;
+  statusEl.className = cls;
+}
+
+function updateSampleUI() {
+  const count = capturedDescriptors.length;
+  document.getElementById('sampleCount').textContent = count;
+  document.getElementById('progressFill').style.width = `${(count / MAX_SAMPLES) * 100}%`;
+
+  for (let i = 0; i < MAX_SAMPLES; i++) {
+    const slot = document.getElementById(`slot${i}`);
+    if (i < count && capturedThumbs[i]) {
+      slot.innerHTML = `<img src="${capturedThumbs[i]}" alt="Mẫu ${i+1}" />`;
+      slot.classList.add('filled');
+    } else {
+      slot.innerHTML = `<span class="placeholder-icon">${i+1}</span>`;
+      slot.classList.remove('filled');
+    }
+  }
+
+  document.getElementById('btnCapture').disabled = !modelReady || count >= MAX_SAMPLES;
+  document.getElementById('btnRegister').disabled = count < 3;
+  document.getElementById('btnAddMore').disabled = count >= MAX_SAMPLES;
+}
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360, facingMode: 'user' } });
+    video.srcObject = stream;
+    await new Promise(resolve => (video.onloadedmetadata = resolve));
+  } catch(e) {
+    setStatus('Lỗi: Không thể truy cập camera. Kiểm tra quyền camera trong trình duyệt.', 'error');
+  }
+}
+
+async function loadModels() {
+  // Model weights đã được tải về thư mục frontend/models/ — không cần mạng ngoài
+  const MODEL_URL = "./models";
+  try {
+    setStatus('Đang tải model nhận diện khuôn mặt (lần đầu có thể mất vài giây)...', 'loading');
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelReady = true;
+    document.getElementById('modelDot').classList.add('ready');
+    document.getElementById('modelText').textContent = 'Model sẵn sàng';
+    setStatus('Sẵn sàng. Nhập thông tin học sinh và bắt đầu chụp mẫu.', 'success');
+    updateSampleUI();
+  } catch(e) {
+    document.getElementById('modelText').textContent = 'Tải model thất bại';
+    setStatus('Lỗi tải model face-api.js: ' + e.message + '. Kiểm tra kết nối mạng và thử tải lại trang.', 'error');
+  }
+}
+
+async function drawLoop() {
+  if (!modelReady || video.readyState < 2) {
+    requestAnimationFrame(drawLoop);
+    return;
+  }
+  const result = await faceapi
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
+    .withFaceLandmarks();
+
+  const ctx = overlay.getContext('2d');
+  const dims = faceapi.matchDimensions(overlay, video, true);
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  if (result) {
+    const resized = faceapi.resizeResults(result, dims);
+    faceapi.draw.drawDetections(overlay, resized);
+    faceapi.draw.drawFaceLandmarks(overlay, resized);
+  }
+  requestAnimationFrame(drawLoop);
+}
+
+async function captureSample() {
+  if (!modelReady || isCapturing) return;
+  if (capturedDescriptors.length >= MAX_SAMPLES) {
+    setStatus('Đã đủ 5 mẫu. Bấm "Lưu đăng ký" để hoàn tất.', 'warning');
+    return;
+  }
+
+  isCapturing = true;
+  setStatus('Đang chụp mẫu, giữ nguyên mặt...', 'loading');
+
+  try {
+    const result = await faceapi
+      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!result) {
+      setStatus('Không phát hiện khuôn mặt. Di chuyển vào trung tâm khung hình.', 'warning');
+      isCapturing = false;
+      return;
+    }
+
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = video.videoWidth;
+    tmpCanvas.height = video.videoHeight;
+    tmpCanvas.getContext('2d').drawImage(video, 0, 0);
+    const thumb = tmpCanvas.toDataURL('image/jpeg', 0.7);
+
+    capturedDescriptors.push(Array.from(result.descriptor));
+    capturedThumbs.push(thumb);
+
+    flash.classList.add('flash');
+    setTimeout(() => flash.classList.remove('flash'), 150);
+
+    const count = capturedDescriptors.length;
+    if (count < 3) {
+      setStatus(`Đã chụp ${count} mẫu. Cần thêm ${3 - count} mẫu nữa (khuyến nghị ${MAX_SAMPLES - count} mẫu).`, 'loading');
+    } else if (count < MAX_SAMPLES) {
+      setStatus(`Đã chụp ${count} mẫu. Có thể lưu ngay hoặc chụp thêm.`, 'success');
+    } else {
+      setStatus(`Đã đủ ${MAX_SAMPLES} mẫu. Nhấn "Lưu đăng ký" để hoàn tất.`, 'success');
+    }
+    updateSampleUI();
+  } catch(e) {
+    setStatus('Lỗi khi chụp mẫu: ' + e.message, 'error');
+  }
+  isCapturing = false;
+}
+
+document.getElementById('btnCapture').onclick = captureSample;
+
+document.getElementById('btnReset').onclick = () => {
+  capturedDescriptors = [];
+  capturedThumbs = [];
+  updateSampleUI();
+  setStatus('Đã xóa hết mẫu. Chụp lại từ đầu.', '');
+};
+
+document.getElementById('btnAddMore').onclick = () => {
+  document.getElementById('btnAddMore').disabled = true;
+  setStatus('Tiếp tục chụp thêm mẫu từ góc khác nhau...', 'loading');
+};
+
+document.getElementById('btnRegister').onclick = async () => {
+  const studentId = document.getElementById('studentId').value.trim();
+  const fullName = document.getElementById('fullName').value.trim();
+
+  if (!studentId || !fullName) {
+    setStatus('Vui lòng nhập đầy đủ Mã học sinh và Họ tên.', 'warning');
+    return;
+  }
+  if (capturedDescriptors.length < 3) {
+    setStatus('Cần chụp ít nhất 3 mẫu khuôn mặt trước khi đăng ký.', 'warning');
+    return;
+  }
+
+  setStatus('Đang gửi dữ liệu lên server...', 'loading');
+  document.getElementById('btnRegister').disabled = true;
+
+  try {
+    const resp = await fetch(API_BASE + '/api/checkin/register_student', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_id: studentId,
+        full_name: fullName,
+        descriptors: capturedDescriptors,
+      }),
+    }).then(r => r.json());
+
+    if (resp.status === 'ok') {
+      setStatus(`Đăng ký thành công: ${fullName} (${resp.num_samples} mẫu khuôn mặt).`, 'success');
+
+      const existing = registeredStudents.findIndex(s => s.student_id === studentId);
+      if (existing >= 0) {
+        registeredStudents[existing].num_samples = resp.num_samples;
+      } else {
+        registeredStudents.push({ student_id: studentId, full_name: fullName, num_samples: resp.num_samples });
+      }
+      renderStudentList();
+
+      document.getElementById('studentId').value = '';
+      document.getElementById('fullName').value = '';
+      capturedDescriptors = [];
+      capturedThumbs = [];
+      updateSampleUI();
+    } else {
+      setStatus('Lỗi từ server: ' + JSON.stringify(resp), 'error');
+      document.getElementById('btnRegister').disabled = false;
+    }
+  } catch(e) {
+    setStatus('Lỗi kết nối đến backend (' + API_BASE + '). Đảm bảo backend đang chạy.', 'error');
+    document.getElementById('btnRegister').disabled = false;
+  }
+};
+
+function renderStudentList() {
+  const area = document.getElementById('studentListArea');
+  if (registeredStudents.length === 0) {
+    area.innerHTML = '<div class="empty-state">Chưa có học sinh nào được đăng ký trong phiên này.</div>';
+    return;
+  }
+  area.innerHTML = `
+    <table class="student-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Mã học sinh</th>
+          <th>Họ tên</th>
+          <th>Số mẫu</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${registeredStudents.map((s, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><code>${s.student_id}</code></td>
+            <td><b>${s.full_name}</b></td>
+            <td><span class="badge-samples">${s.num_samples} mẫu</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// Phím tắt Space = chụp mẫu
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.target.matches('input')) {
+    e.preventDefault();
+    captureSample();
+  }
+});
+
+(async function init() {
+  updateSampleUI();
+  await startCamera();
+  await loadModels();
+  drawLoop();
+})();
+</script>
+</body>
+</html>
