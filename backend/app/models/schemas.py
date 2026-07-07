@@ -58,6 +58,26 @@ class InitRouteRequest(BaseModel):
     stops: List[dict]
 
 
+class PassengerETARequest(BaseModel):
+    """Hành khách hỏi: 'Xe bus_id trên tuyến route_id còn bao lâu đến trạm stop_id của tôi?'"""
+    route_id: str
+    bus_id: str
+    passenger_stop_id: int
+    traffic_level: float = 1.0
+
+
+class ETAResponse(BaseModel):
+    """Response ETA cho hành khách."""
+    bus_id: str
+    passenger_stop_id: int
+    stop_name: Optional[str] = None
+    distance_remaining_km: float
+    eta_minutes: float
+    bus_distance_from_start_km: float
+    stop_cumulative_distance_km: float
+    direction: str
+
+
 # ---------- Frame payloads (anh base64 JPEG/PNG tu camera) ----------
 class DriverFramePayload(BaseModel):
     frame_index: int

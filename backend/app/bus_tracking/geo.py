@@ -1,26 +1,33 @@
 """
-Cac ham hinh hoc / khoang cach dia ly.
+geo.py – Các hàm hình học / khoảng cách địa lý.
 
-Port tu: app.py (repo: Terrificdatabytes/bustracker)
+Port từ: Terrificdatabytes/bustracker/app.py
   - haversine_distance
-  - phan logic tinh khoang cach tich luy theo waypoint (calculate_distance_with_waypoints)
+  - calculate_distance_with_waypoints
 
-Bo sung them `distance_point_to_segment` va `detect_route_deviation` (khong
-co san trong repo goc) de phuc vu tinh nang "canh bao chech huong" ma de bai
-yeu cau - dung chinh haversine_distance goc de suy ra khoang cach vuong goc
-tu vi tri xe toi doan duong (segment) gan nhat trong tuyen.
+Bổ sung (không có trong repo gốc):
+  - build_stop_distance_cache      : pre-calculate khoảng cách tích luỹ lúc startup
+  - get_stop_distance              : tra cứu O(1) từ cache
+  - distance_point_to_segment_km   : khoảng cách điểm → đoạn thẳng (xấp xỉ phẳng)
+  - detect_route_deviation         : cảnh báo chệch tuyến
 """
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 Coord = Tuple[float, float]  # (lat, lng)
 
+# Kiểu cache: route_id → stop_id → direction → km tích luỹ
+StopDistanceCache = Dict[str, Dict[int, Dict[str, float]]]
 
+
+# ===========================================================================
+# 1. Haversine – port nguyên từ bustracker/app.py
+# ===========================================================================
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Port nguyen ham tu bustracker/app.py. Tra ve khoang cach (km)."""
-    R = 6371
+    """Trả về khoảng cách Haversine (km) giữa 2 điểm GPS."""
+    R = 6371.0
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
@@ -29,20 +36,24 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 
-def calculate_distance_with_waypoints(route_points: List[dict], lat1: float, lon1: float,
-                                       lat2: float, lon2: float) -> float:
+# ===========================================================================
+# 2. Khoảng cách theo waypoints – port từ bustracker/app.py
+# ===========================================================================
+def calculate_distance_with_waypoints(
+    route_points: List[dict],
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> float:
     """
-    Port tu bustracker/app.py::calculate_distance_with_waypoints.
-
-    Tim diem gan nhat trong `route_points` (list cac dict {'lat','lng'}) ung
-    voi (lat1,lon1) va (lat2,lon2), roi cong don khoang cach haversine giua
-    cac waypoint nam giua 2 diem do -> uoc luong khoang cach "theo duong"
-    chinh xac hon so vs duong chim (haversine truc tiep).
+    Ước lượng khoảng cách "theo đường" giữa 2 điểm GPS dọc theo tuyến.
+    Tìm waypoint gần nhất với mỗi điểm rồi cộng dồn haversine giữa các waypoints.
     """
     if not route_points:
         return haversine_distance(lat1, lon1, lat2, lon2)
 
-    def _closest_idx(lat, lng):
+    def _closest_idx(lat: float, lng: float) -> Tuple[int, float]:
         best_i, best_d = 0, float("inf")
         for i, p in enumerate(route_points):
             d = haversine_distance(lat, lng, p["lat"], p["lng"])
@@ -63,17 +74,174 @@ def calculate_distance_with_waypoints(route_points: List[dict], lat1: float, lon
     return total
 
 
+# ===========================================================================
+# 3. Stop distance cache – port & mở rộng từ bustracker/app.py
+#    (precalculate_stop_distances_manual + stop_distance_cache)
+# ===========================================================================
+def build_stop_distance_cache(
+    route_id: str,
+    route_stops: List[dict],
+    segment_distances: Optional[List[float]] = None,
+) -> Dict[int, Dict[str, float]]:
+    """
+    Pre-calculate khoảng cách tích luỹ forward + backward cho mỗi trạm.
+
+    Tham số:
+      route_id         : ID tuyến (dùng để log)
+      route_stops      : list dict {'id','name','lat','lng'} theo đúng thứ tự tuyến
+      segment_distances: list khoảng cách (km) giữa các trạm kế tiếp
+                         (len = num_stops - 1). Nếu None → dùng haversine fallback.
+
+    Trả về:
+      dict: stop_id (int) → {'forward': float, 'backward': float}
+      Thêm key đặc biệt:  0 → {'total_distance': float}
+    """
+    if not route_stops:
+        return {}
+
+    n = len(route_stops)
+
+    # Xác định khoảng cách từng đoạn
+    use_ai_distances = (
+        segment_distances is not None
+        and len(segment_distances) == n - 1
+    )
+
+    if use_ai_distances:
+        print(f"[RULER] Route {route_id}: dùng AI-calculated segment distances ({n - 1} đoạn)")
+        segs = segment_distances
+    else:
+        if segment_distances is not None:
+            print(
+                f"[WARN] Route {route_id}: segment_distances có {len(segment_distances)} đoạn, "
+                f"cần {n - 1} → dùng haversine fallback"
+            )
+        else:
+            print(f"[RULER] Route {route_id}: không có segment distances → dùng haversine fallback")
+        segs = [
+            haversine_distance(
+                route_stops[i]["lat"], route_stops[i]["lng"],
+                route_stops[i + 1]["lat"], route_stops[i + 1]["lng"],
+            )
+            for i in range(n - 1)
+        ]
+
+    # Tính cumulative forward
+    cum = 0.0
+    forward: Dict[int, float] = {}
+    for i, stop in enumerate(route_stops):
+        if i > 0:
+            cum += segs[i - 1]
+        forward[stop["id"]] = round(cum, 4)
+
+    total_distance = cum
+
+    # Tính backward
+    backward: Dict[int, float] = {}
+    for stop in route_stops:
+        backward[stop["id"]] = round(total_distance - forward[stop["id"]], 4)
+
+    # Gom thành cache per stop_id
+    cache: Dict[int, Dict[str, float]] = {}
+    for stop in route_stops:
+        sid = stop["id"]
+        cache[sid] = {
+            "forward": forward[sid],
+            "backward": backward[sid],
+            "name": stop.get("name", f"Stop {sid}"),
+        }
+
+    # Key 0 để lưu tổng khoảng cách tuyến
+    cache[0] = {"total_distance": round(total_distance, 4)}
+
+    print(
+        f"[OK] Route {route_id}: cache {n} trạm, "
+        f"tổng {total_distance:.3f} km "
+        f"({'AI segments' if use_ai_distances else 'haversine'})"
+    )
+    return cache
+
+
+def get_stop_distance(
+    cache: Dict[int, Dict[str, float]],
+    stop_id: int,
+    direction: str = "forward",
+) -> Optional[float]:
+    """
+    Tra cứu O(1) khoảng cách tích luỹ của trạm từ cache.
+    Trả về None nếu không tìm thấy.
+    """
+    entry = cache.get(stop_id)
+    if entry is None:
+        return None
+    return entry.get(direction)
+
+
+def get_total_distance(cache: Dict[int, Dict[str, float]]) -> float:
+    """Tổng khoảng cách toàn tuyến (km), lấy từ key 0 trong cache."""
+    return cache.get(0, {}).get("total_distance", 0.0)
+
+
+def find_nearest_stop_with_cache(
+    lat: float,
+    lng: float,
+    route_stops: List[dict],
+) -> Tuple[Optional[dict], int, float]:
+    """
+    Tìm trạm gần nhất và index của nó.
+    Trả về (stop_dict, index, haversine_distance_km).
+    """
+    min_d, nearest, nearest_idx = float("inf"), None, 0
+    for idx, stop in enumerate(route_stops):
+        d = haversine_distance(lat, lng, stop["lat"], stop["lng"])
+        if d < min_d:
+            min_d, nearest, nearest_idx = d, stop, idx
+    return nearest, nearest_idx, min_d
+
+
+def calculate_bus_distance_from_start(
+    lat: float,
+    lng: float,
+    route_stops: List[dict],
+    cache: Dict[int, Dict[str, float]],
+    direction: str = "forward",
+) -> float:
+    """
+    Tính khoảng cách xe buýt đã đi từ điểm đầu tuyến (km).
+    Dùng cache trạm gần nhất + offset haversine.
+
+    Công thức:
+      bus_distance = stop_cache[nearest_stop][direction] ± offset_to_nearest_stop
+    """
+    if not route_stops or not cache:
+        return 0.0
+
+    nearest, nearest_idx, dist_to_nearest = find_nearest_stop_with_cache(lat, lng, route_stops)
+    if nearest is None:
+        return 0.0
+
+    stop_cum = get_stop_distance(cache, nearest["id"], direction)
+    if stop_cum is None:
+        return 0.0
+
+    # Ước lượng xe đang ở giữa 2 trạm → cộng thêm offset
+    if direction == "forward":
+        return max(0.0, stop_cum - dist_to_nearest)
+    else:
+        return max(0.0, stop_cum - dist_to_nearest)
+
+
+# ===========================================================================
+# 4. Khoảng cách điểm → đoạn thẳng (xấp xỉ phẳng)
+# ===========================================================================
 def distance_point_to_segment_km(point: Coord, seg_a: Coord, seg_b: Coord) -> float:
     """
-    Khoang cach xap xi (km) tu 1 diem GPS toi 1 doan duong [seg_a, seg_b].
-
-    Xap xi phang (flat-earth) hop ly cho khoang cach ngan (vai km) quanh tuyen
-    xe buyt - du chinh xac cho muc dich canh bao chech huong. Dung
-    haversine_distance goc tu bustracker de quy doi do lech ve km.
+    Khoảng cách xấp xỉ (km) từ 1 điểm GPS đến đoạn [seg_a, seg_b].
+    Dùng xấp xỉ phẳng cục bộ – đủ chính xác trong phạm vi vài km.
     """
     lat0 = math.radians((seg_a[0] + seg_b[0]) / 2.0)
-    kx = 111.320 * math.cos(lat0)  # km / do kinh do tai vi do trung binh
-    ky = 110.574                    # km / do vi do
+    kx = 111.320 * math.cos(lat0)  # km / độ kinh
+    ky = 110.574                    # km / độ vĩ
 
     px, py = point[1] * kx, point[0] * ky
     ax, ay = seg_a[1] * kx, seg_a[0] * ky
@@ -86,38 +254,90 @@ def distance_point_to_segment_km(point: Coord, seg_a: Coord, seg_b: Coord) -> fl
 
     t = ((px - ax) * abx + (py - ay) * aby) / seg_len_sq
     t = max(0.0, min(1.0, t))
-    proj_x, proj_y = ax + t * abx, ay + t * aby
+    proj_x = ax + t * abx
+    proj_y = ay + t * aby
     return math.hypot(px - proj_x, py - proj_y)
 
 
+# ===========================================================================
+# 5. Cảnh báo chệch tuyến – mở rộng từ phiên bản cũ
+# ===========================================================================
 def detect_route_deviation(
     current_pos: Coord,
     route_points: List[dict],
     deviation_threshold_km: float = 0.3,
 ) -> dict:
     """
-    Tinh nang "canh bao chech huong": tim doan duong gan nhat trong tuyen
-    (`route_points`, danh sach {'lat','lng'} theo dung thu tu tuyen, giong
-    STOP_COORDS trong bustracker/app.py) va so khoang cach vuong goc voi
-    nguong cho phep.
+    Phát hiện chệch tuyến: tìm đoạn đường gần nhất trong tuyến và so với ngưỡng.
+
+    Tham số:
+      current_pos          : (lat, lng) vị trí hiện tại xe
+      route_points         : list dict {'id','name','lat','lng'} theo thứ tự tuyến
+      deviation_threshold_km: ngưỡng cảnh báo (km), mặc định 300m
+
+    Trả về:
+      {
+        deviated             : bool
+        distance_from_route_km: float
+        threshold_km         : float
+        nearest_segment_idx  : int   (index đoạn gần nhất)
+        nearest_stop_before  : str   (tên trạm trước đoạn gần nhất)
+        nearest_stop_after   : str   (tên trạm sau đoạn gần nhất)
+        message              : str   (tiếng Việt)
+        severity             : str   ("ok" | "warning" | "critical")
+      }
     """
     if len(route_points) < 2:
-        return {"deviated": False, "distance_from_route_km": 0.0}
+        return {
+            "deviated": False,
+            "distance_from_route_km": 0.0,
+            "threshold_km": deviation_threshold_km,
+            "nearest_segment_idx": 0,
+            "nearest_stop_before": "",
+            "nearest_stop_after": "",
+            "message": "Không đủ dữ liệu tuyến để kiểm tra",
+            "severity": "ok",
+        }
 
     best_dist = float("inf")
+    best_seg_idx = 0
+
     for i in range(len(route_points) - 1):
         a = (route_points[i]["lat"], route_points[i]["lng"])
         b = (route_points[i + 1]["lat"], route_points[i + 1]["lng"])
         d = distance_point_to_segment_km(current_pos, a, b)
-        best_dist = min(best_dist, d)
+        if d < best_dist:
+            best_dist = d
+            best_seg_idx = i
 
     deviated = best_dist > deviation_threshold_km
+
+    # Xác định severity
+    if not deviated:
+        severity = "ok"
+    elif best_dist < deviation_threshold_km * 2:
+        severity = "warning"   # 1x–2x ngưỡng
+    else:
+        severity = "critical"  # > 2x ngưỡng
+
+    stop_before = route_points[best_seg_idx].get("name", f"Trạm {best_seg_idx + 1}")
+    stop_after = route_points[best_seg_idx + 1].get("name", f"Trạm {best_seg_idx + 2}")
+
+    if deviated:
+        message = (
+            f"CẢNH BÁO: Xe đã đi chệch tuyến khoảng {best_dist * 1000:.0f} m "
+            f"(giữa '{stop_before}' và '{stop_after}')"
+        )
+    else:
+        message = f"Xe đang đi đúng tuyến (giữa '{stop_before}' và '{stop_after}')"
+
     return {
         "deviated": deviated,
         "distance_from_route_km": round(best_dist, 4),
         "threshold_km": deviation_threshold_km,
-        "message": (
-            f"CANH BAO: xe da di chech tuyen duong khoang {best_dist*1000:.0f} m"
-            if deviated else "Xe dang di dung tuyen"
-        ),
+        "nearest_segment_idx": best_seg_idx,
+        "nearest_stop_before": stop_before,
+        "nearest_stop_after": stop_after,
+        "message": message,
+        "severity": severity,
     }
