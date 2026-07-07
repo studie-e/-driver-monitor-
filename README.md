@@ -63,6 +63,7 @@ uvicorn app.main:app --reload --port 8000
 
 Sau đó mở `frontend/face_checkin.html` và `frontend/driver_dashboard.html` bằng trình duyệt
 (cần bật webcam, và backend đang chạy ở `localhost:8000`).
+```
 
 ## Luồng nghiệp vụ chính (đúng theo mô tả đề bài)
 

@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 
 from app.driver_monitor.alerts import Alert, AlertPolicy
+from app.driver_monitor.landmark_provider import MediaPipeLandmarkProvider
 from app.driver_monitor.metrics import (
     eye_aspect_ratio,
     horizontal_head_offset,
@@ -88,6 +89,16 @@ class DriverSafetyPipeline:
         self._eye_cascade = cv2.CascadeClassifier(cascade_dir + "haarcascade_eye.xml")
         self._mouth_cascade = cv2.CascadeClassifier(cascade_dir + "haarcascade_smile.xml")
 
+        # Nang cap tuy chon: neu da tai face_landmarker.task (xem landmark_provider.py),
+        # dung MediaPipe FaceLandmarker cho EAR/MAR chinh xac hon Haar cascade.
+        # Neu chua co model file, tu dong fallback ve Haar cascade phia tren - KHONG loi.
+        try:
+            self._landmark_provider = MediaPipeLandmarkProvider()
+            self._use_mediapipe = True
+        except FileNotFoundError:
+            self._landmark_provider = None
+            self._use_mediapipe = False
+
         self.thresholds = thresholds or DEFAULT_THRESHOLDS
         self.scorer = RiskScorer()
         self.alert_policy = AlertPolicy(alert_cooldown_seconds)
@@ -110,13 +121,12 @@ class DriverSafetyPipeline:
         face_bbox = None
         landmarks_out: list = []
 
-        gray = cv2.equalizeHist(cv2.cvtColor(packet.frame, cv2.COLOR_BGR2GRAY))
-        faces = self._face_cascade.detectMultiScale(
-            gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80),
-            flags=cv2.CASCADE_SCALE_IMAGE,
-        )
+        if self._use_mediapipe:
+            detected = self._detect_via_mediapipe(packet.frame)
+        else:
+            detected = self._detect_via_haar_cascade(packet.frame, landmarks_out)
 
-        if len(faces) == 0:
+        if detected is None:
             self._missing_face_counter += 1
             if self._missing_face_counter >= self.thresholds["missing_face_frames"]:
                 raw_signals["distracted"] = 1.0
@@ -128,46 +138,12 @@ class DriverSafetyPipeline:
                 )
         else:
             self._missing_face_counter = 0
-            faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-            fx, fy, fw, fh = faces[0]
-            face_bbox = (int(fx), int(fy), int(fw), int(fh))
-            face_roi_gray = gray[fy:fy + fh, fx:fx + fw]
-
-            # --- Mat: chi tim trong nua tren cua khuon mat de tranh nham voi mui/mieng ---
-            upper_half = face_roi_gray[0: int(fh * 0.6), :]
-            eyes = self._eye_cascade.detectMultiScale(upper_half, scaleFactor=1.1, minNeighbors=6, minSize=(20, 20))
-
-            ear_points = []
-            for (ex, ey, ew, eh) in eyes[:2]:
-                abs_x, abs_y = fx + ex, fy + ey
-                ear_points.append(_box_to_ear_points(abs_x, abs_y, ew, eh))
-                landmarks_out.extend([(abs_x, abs_y), (abs_x + ew, abs_y + eh)])
-
-            if len(ear_points) >= 1:
-                ear = float(np.mean([eye_aspect_ratio(p) for p in ear_points]))
-                eyes_detected = True
-            else:
-                # Haar cascade khong tim thay mat mo -> gia dinh mat dang NHAM
-                ear = 0.0
-                eyes_detected = False
-
-            # --- Mieng: dung haarcascade_smile o nua duoi khuon mat de uoc luong MAR ---
-            lower_half = face_roi_gray[int(fh * 0.55):, :]
-            mouths = self._mouth_cascade.detectMultiScale(lower_half, scaleFactor=1.5, minNeighbors=15, minSize=(25, 15))
-            if len(mouths) > 0:
-                mx, my, mw, mh = mouths[0]
-                abs_y = fy + int(fh * 0.55) + my
-                mar_points = _box_to_mar_points(fx + mx, abs_y, mw, mh)
-                mar = mouth_aspect_ratio(mar_points)
-                landmarks_out.append((fx + mx, abs_y))
-            else:
-                mar = 0.0
-
-            head_offset = horizontal_head_offset(face_bbox, packet.frame.shape[1])
+            face_bbox, ear, mar = detected
 
             th = self.thresholds
-            self._closed_counter = self._closed_counter + 1 if (not eyes_detected or ear < th["eye_aspect_ratio"]) else 0
+            self._closed_counter = self._closed_counter + 1 if ear < th["eye_aspect_ratio"] else 0
             self._yawn_counter = self._yawn_counter + 1 if mar > th["mouth_aspect_ratio"] else 0
+            head_offset = horizontal_head_offset(face_bbox, packet.frame.shape[1])
             self._distracted_counter = (
                 self._distracted_counter + 1 if head_offset > th["head_offset"] else 0
             )
@@ -199,6 +175,59 @@ class DriverSafetyPipeline:
             face_bbox=face_bbox,
             landmarks=landmarks_out,
         )
+
+    def _detect_via_mediapipe(self, frame_bgr):
+        """Nhanh do chinh xac cao khi da co face_landmarker.task (xem landmark_provider.py)."""
+        result = self._landmark_provider.detect(frame_bgr)
+        if result is None:
+            return None
+        face_bbox, ear, mar, _head_offset = result
+        return face_bbox, ear, mar
+
+    def _detect_via_haar_cascade(self, frame_bgr, landmarks_out: list):
+        """Nhanh fallback mac dinh: Haar cascade co san trong OpenCV, khong can tai model."""
+        gray = cv2.equalizeHist(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY))
+        faces = self._face_cascade.detectMultiScale(
+            gray, scaleFactor=1.2, minNeighbors=5, minSize=(80, 80),
+            flags=cv2.CASCADE_SCALE_IMAGE,
+        )
+        if len(faces) == 0:
+            return None
+
+        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+        fx, fy, fw, fh = faces[0]
+        face_bbox = (int(fx), int(fy), int(fw), int(fh))
+        face_roi_gray = gray[fy:fy + fh, fx:fx + fw]
+
+        # --- Mat: chi tim trong nua tren cua khuon mat de tranh nham voi mui/mieng ---
+        upper_half = face_roi_gray[0: int(fh * 0.6), :]
+        eyes = self._eye_cascade.detectMultiScale(upper_half, scaleFactor=1.1, minNeighbors=6, minSize=(20, 20))
+
+        ear_points = []
+        for (ex, ey, ew, eh) in eyes[:2]:
+            abs_x, abs_y = fx + ex, fy + ey
+            ear_points.append(_box_to_ear_points(abs_x, abs_y, ew, eh))
+            landmarks_out.extend([(abs_x, abs_y), (abs_x + ew, abs_y + eh)])
+
+        if len(ear_points) >= 1:
+            ear = float(np.mean([eye_aspect_ratio(p) for p in ear_points]))
+        else:
+            # Haar cascade khong tim thay mat mo -> gia dinh mat dang NHAM
+            ear = 0.0
+
+        # --- Mieng: dung haarcascade_smile o nua duoi khuon mat de uoc luong MAR ---
+        lower_half = face_roi_gray[int(fh * 0.55):, :]
+        mouths = self._mouth_cascade.detectMultiScale(lower_half, scaleFactor=1.5, minNeighbors=15, minSize=(25, 15))
+        if len(mouths) > 0:
+            mx, my, mw, mh = mouths[0]
+            abs_y = fy + int(fh * 0.55) + my
+            mar_points = _box_to_mar_points(fx + mx, abs_y, mw, mh)
+            mar = mouth_aspect_ratio(mar_points)
+            landmarks_out.append((fx + mx, abs_y))
+        else:
+            mar = 0.0
+
+        return face_bbox, ear, mar
 
     def alerts_for(self, processed: ProcessedFrame) -> list:
         """Ap AlertPolicy (cooldown) len cac event cua 1 frame da xu ly."""
